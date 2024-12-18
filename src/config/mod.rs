@@ -1,31 +1,40 @@
-use crate::ConsoleConfig;
+#[doc(hidden)]
+mod console;
+pub use console::*;
 
-pub mod console;
+#[deprecated(since = "1.0.0", note = "Rename WASMLayerConfig to WasmLayerConfig.")]
+pub type WASMLayerConfig = WasmLayerConfig;
 
-#[derive(Debug, PartialEq)]
-pub struct WASMLayerConfig {
+#[doc = r#"
+Configuration parameters for the [WasmLayer](crate::prelude::WasmLayer).
+"#]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct WasmLayerConfig {
     pub report_logs_in_timings: bool,
-    pub report_logs_in_console: bool,
-    pub use_console_color: bool,
+    pub console: ConsoleConfig,
+    /// Maximum log level
     pub max_level: tracing::Level,
+    /// Show/hide fields of types
     pub show_fields: bool,
+    /// Show origin (line number, source)
+    pub show_origin: bool,
 }
 
-impl Default for WASMLayerConfig {
+impl Default for WasmLayerConfig {
     fn default() -> Self {
-        WASMLayerConfig {
+        WasmLayerConfig {
             report_logs_in_timings: true,
-            report_logs_in_console: true,
-            use_console_color: true,
+            console: ConsoleConfig::ReportWithConsoleColor,
             max_level: tracing::Level::TRACE,
             show_fields: true,
+            show_origin: true,
         }
     }
 }
 
-impl WASMLayerConfig {
-    pub fn new() -> WASMLayerConfig {
-        WASMLayerConfig::default()
+impl WasmLayerConfig {
+    pub fn new() -> WasmLayerConfig {
+        WasmLayerConfig::default()
     }
 
     /// Set whether events should appear in performance Timings
@@ -42,21 +51,12 @@ impl WASMLayerConfig {
 
     /// Set if and how events should be displayed in the browser console
     pub fn set_console_config(&mut self, console_config: ConsoleConfig) -> &mut Self {
-        match console_config {
-            ConsoleConfig::NoReporting => {
-                self.report_logs_in_console = false;
-                self.use_console_color = false;
-            }
-            ConsoleConfig::ReportWithoutConsoleColor => {
-                self.report_logs_in_console = true;
-                self.use_console_color = false;
-            }
-            ConsoleConfig::ReportWithConsoleColor => {
-                self.report_logs_in_console = true;
-                self.use_console_color = true;
-            }
-        }
+        self.console = console_config;
+        self
+    }
 
+    pub fn set_show_origin(&mut self, show_origin: bool) -> &mut Self {
+        self.show_origin = show_origin;
         self
     }
 
@@ -65,27 +65,31 @@ impl WASMLayerConfig {
         self.show_fields = show_fields;
         self
     }
+
+    pub fn console_enabled(&self) -> bool {
+        self.console.reporting_enabled()
+    }
 }
 
 #[test]
 fn test_default_built_config() {
-    let config = WASMLayerConfig::new();
+    let config = WasmLayerConfig::new();
 
     assert_eq!(
         config,
-        WASMLayerConfig {
+        WasmLayerConfig {
             report_logs_in_timings: true,
-            report_logs_in_console: true,
-            use_console_color: true,
+            console: ConsoleConfig::ReportWithConsoleColor,
             max_level: tracing::Level::TRACE,
             show_fields: true,
+            show_origin: true
         }
     )
 }
 
 #[test]
 fn test_set_report_logs_in_timings() {
-    let mut config = WASMLayerConfig::new();
+    let mut config = WasmLayerConfig::new();
     config.set_report_logs_in_timings(false);
 
     assert!(!config.report_logs_in_timings);
@@ -93,34 +97,31 @@ fn test_set_report_logs_in_timings() {
 
 #[test]
 fn test_set_console_config_no_reporting() {
-    let mut config = WASMLayerConfig::new();
+    let mut config = WasmLayerConfig::new();
     config.set_console_config(ConsoleConfig::NoReporting);
 
-    assert!(!config.report_logs_in_console);
-    assert!(!config.use_console_color);
+    assert!(!config.console.reporting_enabled());
 }
 
 #[test]
 fn test_set_console_config_without_color() {
-    let mut config = WASMLayerConfig::new();
+    let mut config = WasmLayerConfig::new();
     config.set_console_config(ConsoleConfig::ReportWithoutConsoleColor);
 
-    assert!(config.report_logs_in_console);
-    assert!(!config.use_console_color);
+    assert_eq!(config.console, ConsoleConfig::ReportWithoutConsoleColor);
 }
 
 #[test]
 fn test_set_console_config_with_color() {
-    let mut config = WASMLayerConfig::new();
+    let mut config = WasmLayerConfig::new();
     config.set_console_config(ConsoleConfig::ReportWithConsoleColor);
 
-    assert!(config.report_logs_in_console);
-    assert!(config.use_console_color);
+    assert_eq!(config.console, ConsoleConfig::ReportWithConsoleColor);
 }
 
 #[test]
 fn test_set_config_log_level_warn() {
-    let mut config = WASMLayerConfig::new();
+    let mut config = WasmLayerConfig::new();
     config.set_max_level(tracing::Level::WARN);
 
     assert_eq!(config.max_level, tracing::Level::WARN);

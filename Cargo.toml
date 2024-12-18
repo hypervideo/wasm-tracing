@@ -1,6 +1,6 @@
 [package]
 name = "wasm-tracing"
-version = "0.2.1"
+version = "1.0.0-alpha"
 authors = ["Daniel Gallups <dsgallups@protonmail.com>"]
 edition = "2021"
 categories = [
@@ -28,6 +28,11 @@ tracing-subscriber = { version = "0.3", features = [
     "registry",
 ], default-features = false }
 wasm-bindgen = { version = "0.2" }
+
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.0"
+console_error_panic_hook = "0.1.7"
 
 [features]
 mark-with-rayon-thread-index = ["rayon"]
