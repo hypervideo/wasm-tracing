@@ -60,8 +60,10 @@ impl Default for WasmLayer {
 
 impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for WasmLayer {
     fn enabled(&self, metadata: &tracing::Metadata<'_>, _: Context<'_, S>) -> bool {
-        let level = metadata.level();
-        level <= &self.config.max_level
+        self.config
+            .max_level
+            .as_ref()
+            .map_or(true, |max_level| metadata.level() <= max_level)
     }
 
     fn on_new_span(
@@ -70,6 +72,15 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for WasmLayer {
         id: &tracing::Id,
         ctx: Context<'_, S>,
     ) {
+        {
+            let filter = self.config.filter.read();
+            let meta = attrs.metadata();
+            if !filter.enabled(meta, ctx.clone()) {
+                return;
+            };
+            filter.on_new_span(attrs, id, ctx.clone());
+        };
+
         let mut new_debug_record = StringRecorder::new(self.config.show_fields);
         attrs.record(&mut new_debug_record);
 
@@ -81,6 +92,8 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for WasmLayer {
     }
 
     fn on_record(&self, id: &tracing::Id, values: &tracing::span::Record<'_>, ctx: Context<'_, S>) {
+        self.config.filter.read().on_record(id, values, ctx.clone());
+
         if let Some(span_ref) = ctx.span(id) {
             if let Some(debug_record) = span_ref.extensions_mut().get_mut::<StringRecorder>() {
                 values.record(debug_record);
@@ -93,14 +106,23 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for WasmLayer {
             return;
         }
 
-        let mut recorder = StringRecorder::new(self.config.show_fields);
-        event.record(&mut recorder);
         #[cfg(feature = "tracing-log")]
         let normalized_meta = event.normalized_metadata();
         #[cfg(feature = "tracing-log")]
         let meta = normalized_meta.as_ref().unwrap_or_else(|| event.metadata());
         #[cfg(not(feature = "tracing-log"))]
         let meta = event.metadata();
+
+        {
+            let filter = self.config.filter.read();
+            if !filter.enabled(meta, ctx.clone()) {
+                return;
+            };
+            filter.on_event(event, ctx.clone());
+        };
+
+        let mut recorder = StringRecorder::new(self.config.show_fields);
+        event.record(&mut recorder);
         let level = meta.level();
 
         if self.config.report_logs_in_timings {
@@ -190,13 +212,17 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for WasmLayer {
         };
     }
 
-    fn on_enter(&self, id: &tracing::Id, _ctx: Context<'_, S>) {
+    fn on_enter(&self, id: &tracing::Id, ctx: Context<'_, S>) {
+        self.config.filter.read().on_enter(id, ctx);
+
         if self.config.report_logs_in_timings {
             mark(&mark_name(id));
         }
     }
 
     fn on_exit(&self, id: &tracing::Id, ctx: Context<'_, S>) {
+        self.config.filter.read().on_exit(id, ctx.clone());
+
         if !self.config.report_logs_in_timings {
             return;
         }

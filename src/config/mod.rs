@@ -1,19 +1,60 @@
 #[doc(hidden)]
 mod console;
 pub use console::*;
+use std::sync::{Arc, RwLock};
+use tracing_subscriber::EnvFilter;
 
 #[deprecated(since = "1.0.0", note = "Rename WASMLayerConfig to WasmLayerConfig.")]
 pub type WASMLayerConfig = WasmLayerConfig;
 
+/// Dynamic log filter. Wraps a [`tracing_subscriber::filter::EnvFilter`], supports logging directives like `RUST_LOG`.
+#[derive(Debug, Clone)]
+pub struct LogFilter(Arc<RwLock<EnvFilter>>);
+
+impl Default for LogFilter {
+    fn default() -> Self {
+        EnvFilter::builder()
+            .with_default_directive("error".parse().unwrap())
+            .parse_lossy("")
+            .into()
+    }
+}
+
+impl From<EnvFilter> for LogFilter {
+    fn from(filter: EnvFilter) -> Self {
+        LogFilter(Arc::new(RwLock::new(filter)))
+    }
+}
+
+impl LogFilter {
+    pub fn new(directives: impl AsRef<str>) -> Self {
+        EnvFilter::builder().parse_lossy(directives).into()
+    }
+
+    pub(crate) fn read(&self) -> std::sync::RwLockReadGuard<EnvFilter> {
+        self.0.read().unwrap()
+    }
+
+    pub fn update(&self, directives: impl AsRef<str>) {
+        *self.0.write().unwrap() = EnvFilter::builder().parse_lossy(directives)
+    }
+
+    pub fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
+        self.read().max_level_hint()
+    }
+}
+
 ///Configuration parameters for the [WasmLayer](crate::prelude::WasmLayer).
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct WasmLayerConfig {
     /// In dev-tools, report timings of traces
     pub report_logs_in_timings: bool,
     /// See [ConsoleConfig]
     pub console: ConsoleConfig,
-    /// Maximum log level
-    pub max_level: tracing::Level,
+    /// Static maximum log level, [`Self::filter`] is dynamically evaluated.
+    pub max_level: Option<tracing::Level>,
+    /// Dynamic log filter, see [`LogFilter`];
+    pub filter: LogFilter,
     /// Show/hide fields of types
     pub show_fields: bool,
     /// Show origin (line number, source)
@@ -27,7 +68,8 @@ impl Default for WasmLayerConfig {
         WasmLayerConfig {
             report_logs_in_timings: true,
             console: ConsoleConfig::ReportWithConsoleColor,
-            max_level: tracing::Level::TRACE,
+            max_level: None,
+            filter: LogFilter::new("trace"),
             show_fields: true,
             show_origin: true,
             origin_base_url: None,
@@ -49,7 +91,13 @@ impl WasmLayerConfig {
 
     /// Set the maximal level on which events should be displayed
     pub fn set_max_level(&mut self, max_level: tracing::Level) -> &mut Self {
-        self.max_level = max_level;
+        self.max_level = Some(max_level);
+        self
+    }
+
+    /// See [`LogFilter`]
+    pub fn set_env_filter(&mut self, env_filter: impl Into<LogFilter>) -> &mut Self {
+        self.filter = env_filter.into();
         self
     }
 
@@ -86,17 +134,18 @@ impl WasmLayerConfig {
 fn test_default_built_config() {
     let config = WasmLayerConfig::new();
 
-    assert_eq!(
+    assert!(matches!(
         config,
         WasmLayerConfig {
             report_logs_in_timings: true,
             console: ConsoleConfig::ReportWithConsoleColor,
-            max_level: tracing::Level::TRACE,
+            max_level: None,
+            filter: _,
             show_fields: true,
             show_origin: true,
-            origin_base_url: None
+            origin_base_url: None,
         }
-    )
+    ))
 }
 
 #[test]
@@ -136,5 +185,22 @@ fn test_set_config_log_level_warn() {
     let mut config = WasmLayerConfig::new();
     config.set_max_level(tracing::Level::WARN);
 
-    assert_eq!(config.max_level, tracing::Level::WARN);
+    assert_eq!(config.max_level, Some(tracing::Level::WARN));
+}
+
+#[test]
+fn test_update_log_filter() {
+    let config = WasmLayerConfig::new();
+    let filter = config.filter;
+    assert_eq!(
+        filter.read().max_level_hint(),
+        Some(tracing::level_filters::LevelFilter::TRACE)
+    );
+
+    filter.update("info");
+
+    assert_eq!(
+        filter.max_level_hint(),
+        Some(tracing::level_filters::LevelFilter::INFO)
+    );
 }

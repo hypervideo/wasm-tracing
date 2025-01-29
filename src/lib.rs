@@ -27,6 +27,8 @@ pub fn start() -> Result<(), JsValue> {
 ```
 "#]
 
+use std::sync::LazyLock;
+
 use tracing::dispatcher::SetGlobalDefaultError;
 use tracing_subscriber::layer::*;
 use tracing_subscriber::registry::*;
@@ -63,6 +65,8 @@ extern "C" {
     fn log3(message1: &str, message2: &str, message3: &str);
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     fn log4(message1: String, message2: &str, message3: &str, message4: &str);
+    #[wasm_bindgen(js_namespace = console, js_name = warn)]
+    fn warn1(message: &str);
 }
 
 #[cfg(not(feature = "mark-with-rayon-thread-index"))]
@@ -126,9 +130,7 @@ pub fn start() -> Result<(), JsValue> {
 ```
 "#]
 pub fn try_set_as_global_default() -> Result<(), SetGlobalDefaultError> {
-    tracing::subscriber::set_global_default(
-        Registry::default().with(WasmLayer::new(WasmLayerConfig::default())),
-    )
+    set_as_global_default_with_config(WasmLayerConfig::default())
 }
 
 #[doc = r#"
@@ -157,5 +159,19 @@ pub fn start() -> Result<(), JsValue> {
 pub fn set_as_global_default_with_config(
     config: WasmLayerConfig,
 ) -> Result<(), SetGlobalDefaultError> {
+    *FILTER.lock().unwrap() = Some(config.filter.clone());
     tracing::subscriber::set_global_default(Registry::default().with(WasmLayer::new(config)))
+}
+
+static FILTER: LazyLock<std::sync::Mutex<Option<LogFilter>>> = LazyLock::new(Default::default);
+
+/// Dynamically set the log directives for the global default subscriber, supports directives like `info,my_crate=debug`.
+///
+/// For more info see [`LogFilter`] and for a description of available syntax see [`tracing_subscriber::EnvFilter`].
+pub fn set_log_filter(directives: &str) {
+    if let Some(filter) = FILTER.lock().unwrap().as_ref() {
+        filter.update(directives);
+    } else {
+        warn1("Failed to set log directives, no filter set");
+    }
 }
