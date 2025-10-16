@@ -173,43 +173,64 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for WasmLayer {
                         span_recorder
                             .fields
                             .iter()
-                            .map(|(key, value)| format!("\n\t{key}: {value}"))
+                            .map(|(key, value)| format!("{key}: {value}"))
                             .collect::<Vec<_>>()
-                            .join("")
+                            .join(", ")
                     })
             })
             .unwrap_or_default();
 
-        match self.config.console {
-            ConsoleConfig::ReportWithConsoleColor => log4(
-                format!(
-                    "%c{}%c {}{}%c{}{}",
+        // Use JS logger if available, otherwise fall back to console
+        if let Some(js_logger) = &self.config.js_logger {
+            let level_str = match *level {
+                tracing::Level::TRACE => "trace",
+                tracing::Level::DEBUG => "debug",
+                tracing::Level::INFO => "info",
+                tracing::Level::WARN => "warn",
+                tracing::Level::ERROR => "error",
+            };
+            let module_path = meta.module_path().unwrap_or("unknown");
+            let message = format!(
+                "{}{} {}{}",
+                origin,
+                thread_display_suffix(),
+                recorder,
+                fields
+            );
+            js_logger.log(level_str, module_path, &message);
+        } else {
+            // Fall back to console logging
+            match self.config.console {
+                ConsoleConfig::ReportWithConsoleColor => log4(
+                    format!(
+                        "%c{}%c {}{}%c{}{}",
+                        level,
+                        origin,
+                        thread_display_suffix(),
+                        recorder,
+                        fields
+                    ),
+                    match *level {
+                        tracing::Level::TRACE => "color: dodgerblue; background: #444",
+                        tracing::Level::DEBUG => "color: lawngreen; background: #444",
+                        tracing::Level::INFO => "color: whitesmoke; background: #444",
+                        tracing::Level::WARN => "color: orange; background: #444",
+                        tracing::Level::ERROR => "color: red; background: #444",
+                    },
+                    "color: gray; font-style: italic",
+                    "color: inherit",
+                ),
+                ConsoleConfig::ReportWithoutConsoleColor => log1(format!(
+                    "{} {}{} {}{}",
                     level,
                     origin,
                     thread_display_suffix(),
                     recorder,
                     fields
-                ),
-                match *level {
-                    tracing::Level::TRACE => "color: dodgerblue; background: #444",
-                    tracing::Level::DEBUG => "color: lawngreen; background: #444",
-                    tracing::Level::INFO => "color: whitesmoke; background: #444",
-                    tracing::Level::WARN => "color: orange; background: #444",
-                    tracing::Level::ERROR => "color: red; background: #444",
-                },
-                "color: gray; font-style: italic",
-                "color: inherit",
-            ),
-            ConsoleConfig::ReportWithoutConsoleColor => log1(format!(
-                "{} {}{} {}{}",
-                level,
-                origin,
-                thread_display_suffix(),
-                recorder,
-                fields
-            )),
-            ConsoleConfig::NoReporting => unreachable!(),
-        };
+                )),
+                ConsoleConfig::NoReporting => unreachable!(),
+            }
+        }
     }
 
     fn on_enter(&self, id: &tracing::Id, ctx: Context<'_, S>) {

@@ -46,7 +46,7 @@ pub(crate) mod recorder;
 /// Re-exports of common types
 pub mod prelude {
     pub use super::{
-        config::{ConsoleConfig, WasmLayerConfig},
+        config::{ConsoleConfig, JsLogger, WasmLayerConfig},
         layer::WasmLayer,
     };
 }

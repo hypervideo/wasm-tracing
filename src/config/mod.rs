@@ -3,6 +3,7 @@ mod console;
 pub use console::*;
 use std::sync::{Arc, RwLock};
 use tracing_subscriber::EnvFilter;
+use wasm_bindgen::prelude::*;
 
 #[deprecated(since = "1.0.0", note = "Rename WASMLayerConfig to WasmLayerConfig.")]
 pub type WASMLayerConfig = WasmLayerConfig;
@@ -44,8 +45,35 @@ impl LogFilter {
     }
 }
 
+/// JavaScript logger callback function.
+/// Takes: level (string), module_path (string), message (string)
+#[wasm_bindgen]
+extern "C" {
+    pub type JsLogger;
+
+    #[wasm_bindgen(structural, method, js_name = log)]
+    pub fn log(this: &JsLogger, level: &str, module_path: &str, message: &str);
+}
+
+/// Wrapper for JsLogger that implements Send + Sync.
+/// SAFETY: WASM is single-threaded, so Send and Sync are safe.
+pub struct SafeJsLogger(JsLogger);
+
+impl SafeJsLogger {
+    pub fn new(logger: JsLogger) -> Self {
+        Self(logger)
+    }
+
+    pub fn log(&self, level: &str, module_path: &str, message: &str) {
+        self.0.log(level, module_path, message)
+    }
+}
+
+// SAFETY: WASM runs in a single-threaded environment
+unsafe impl Send for SafeJsLogger {}
+unsafe impl Sync for SafeJsLogger {}
+
 ///Configuration parameters for the [WasmLayer](crate::prelude::WasmLayer).
-#[derive(Debug, Clone)]
 pub struct WasmLayerConfig {
     /// In dev-tools, report timings of traces
     pub report_logs_in_timings: bool,
@@ -61,6 +89,8 @@ pub struct WasmLayerConfig {
     pub show_origin: bool,
     /// Optional URL to prepend to origins. E.g. to allow for showing full file paths that can be navigated when logged in the browser console.
     pub origin_base_url: Option<String>,
+    /// Optional JavaScript logger to use instead of console
+    pub js_logger: Option<Arc<SafeJsLogger>>,
 }
 
 impl Default for WasmLayerConfig {
@@ -73,6 +103,7 @@ impl Default for WasmLayerConfig {
             show_fields: true,
             show_origin: true,
             origin_base_url: None,
+            js_logger: None,
         }
     }
 }
@@ -124,6 +155,12 @@ impl WasmLayerConfig {
         self
     }
 
+    /// Set a JavaScript logger to use instead of console logging
+    pub fn set_js_logger(&mut self, logger: JsLogger) -> &mut Self {
+        self.js_logger = Some(Arc::new(SafeJsLogger::new(logger)));
+        self
+    }
+
     /// True if the console reporting spans
     pub fn console_enabled(&self) -> bool {
         self.console.reporting_enabled()
@@ -134,18 +171,13 @@ impl WasmLayerConfig {
 fn test_default_built_config() {
     let config = WasmLayerConfig::new();
 
-    assert!(matches!(
-        config,
-        WasmLayerConfig {
-            report_logs_in_timings: true,
-            console: ConsoleConfig::ReportWithConsoleColor,
-            max_level: None,
-            filter: _,
-            show_fields: true,
-            show_origin: true,
-            origin_base_url: None,
-        }
-    ))
+    assert!(config.report_logs_in_timings);
+    assert_eq!(config.console, ConsoleConfig::ReportWithConsoleColor);
+    assert_eq!(config.max_level, None);
+    assert!(config.show_fields);
+    assert!(config.show_origin);
+    assert_eq!(config.origin_base_url, None);
+    assert!(config.js_logger.is_none());
 }
 
 #[test]
