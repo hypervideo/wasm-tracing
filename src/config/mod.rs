@@ -31,7 +31,7 @@ impl LogFilter {
         EnvFilter::builder().parse_lossy(directives).into()
     }
 
-    pub(crate) fn read(&self) -> std::sync::RwLockReadGuard<EnvFilter> {
+    pub(crate) fn read(&self) -> std::sync::RwLockReadGuard<'_, EnvFilter> {
         self.0.read().unwrap()
     }
 
